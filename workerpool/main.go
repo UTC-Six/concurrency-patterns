@@ -1,93 +1,92 @@
 package main
 
 import (
-	"context"
-	"fmt"
-	"sync"
+	"context"   // 导入context包,用于处理超时和取消操作
+	"fmt"       // 导入fmt包,用于打印输出
+	"math/rand" // 导入math/rand包,用于生成随机数
+	"sync"      // 导入sync包,用于同步goroutine
+	"time"      // 导入time包,用于处理时间相关操作
 )
 
 // Job 代表一个需要处理的任务
-// 这里使用 int 类型简化了任务的表示
+// 这里使用int类型简化任务的表示
 type Job int
 
 // Result 代表任务处理的结果
-// 同样使用 int 类型简化了结果的表示
+// 同样使用int类型简化结果的表示
 type Result int
 
 // Worker 函数处理任务并产生结果
-// id: worker 的唯一标识符
+// ctx: 用于控制goroutine的生命周期
+// id: worker的唯一标识符
 // jobs: 用于接收任务的只读通道
 // results: 用于发送结果的只写通道
-// wg: 用于同步的 WaitGroup，确保所有 worker 完成工作
-func Worker(id int, jobs <-chan Job, results chan<- Result, wg *sync.WaitGroup) {
-	// 确保在函数返回时调用 wg.Done()，表示这个 worker 已完成工作
-	defer wg.Done()
-	// 持续从 jobs 通道中接收任务
-	for job := range jobs {
-		// 打印 worker 正在处理的任务信息
-		fmt.Printf("worker %d processing job %d\n", id, job)
-		// 将任务结果（这里简单地将任务值乘以2）发送到 results 通道
-		results <- Result(job * 2) // 模拟工作处理过程
+// wg: 用于同步的WaitGroup,确保所有worker完成工作
+func Worker(ctx context.Context, id int, jobs <-chan Job, results chan<- Result, wg *sync.WaitGroup) {
+	defer wg.Done() // 确保在函数返回时调用wg.Done(),表示这个worker已完成工作
+	for {
+		select {
+		case job, ok := <-jobs:
+			if !ok {
+				// 如果jobs通道已关闭,worker退出
+				return
+			}
+			//fmt.Printf("Worker %d started job %d\n", id, job)
+			// 模拟一个耗时的任务
+			time.Sleep(time.Duration(rand.Intn(1000)) * time.Millisecond)
+			result := Result(job * 2)
+			fmt.Printf("Worker %d completed job %d, result: %d\n", id, job, result)
+			results <- result
+		case <-ctx.Done():
+			// 如果context被取消,打印错误信息并退出
+			//fmt.Printf("Worker %d stopping due to context cancellation: %v\n", id, ctx.Err())
+			return
+		}
 	}
 }
 
-// RunWorkerPool 启动工作池并处理任务
 func main() {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	// 设置任务数量和工作者数量
-	const numJobs = 9
-	const numWorkers = 3
+	// 创建一个5秒后超时的context
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel() // 确保在main函数结束时调用cancel(),释放资源
 
-	// 创建用于发送任务和接收结果的缓冲通道
-	jobs := make(chan Job, numJobs)
-	results := make(chan Result, numJobs)
+	// 创建任务和结果通道,缓冲区大小为100
+	jobs := make(chan Job, 10)
+	results := make(chan Result, 10)
 
-	// 创建 WaitGroup 来同步所有 worker
+	// 创建WaitGroup来同步worker
 	var wg sync.WaitGroup
-	// 添加要等待的 worker 数量
-	wg.Add(numWorkers)
 
-	// 创建 worker
-	for w := 1; w <= numWorkers; w++ {
-		// 启动 worker goroutine
-		go Worker(w, jobs, results, &wg)
+	// 启动5个worker
+	for i := 0; i < 5; i++ {
+		wg.Add(1) // 每启动一个worker,将WaitGroup计数器加1
+		go Worker(ctx, i, jobs, results, &wg)
 	}
 
-	// 发送任务
-	for j := 1; j <= numJobs; j++ {
-		jobs <- Job(j)
-	}
-	// 关闭 jobs 通道，表示不再有新任务
-	close(jobs)
-
-	// 等待所有 worker 完成
+	// 发送20个任务
 	go func() {
-		// 等待所有 worker 完成工作
-		wg.Wait()
-		// 关闭 results 通道，表示所有结果都已处理完毕
-		fmt.Println("close results channel")
-		close(results)
+		for i := 0; i < 20; i++ {
+			jobs <- Job(i) // 发送20个任务到jobs通道
+		}
+		close(jobs) // 所有任务发送完毕后关闭jobs通道
 	}()
 
+	resultCount := 0
 	for {
 		select {
-		case <-ctx.Done():
-			break
-		case ctx.Err():
-			fmt.Println()
-		case result := <-results:
-			if result == 0 {
-				continue
+		//case result := <-results:
+		case _ = <-results:
+			//fmt.Printf("Received result: %d\n", result)
+			resultCount++
+			if resultCount == 20 {
+				//fmt.Println("All results received")
+				return
 			}
-			fmt.Printf("Received result: %d\n", result)
-		default:
-
+		case <-ctx.Done():
+			// 如果context被取消(超时或手动取消),打印错误信息
+			fmt.Printf("Main: context cancelled: %v\n", ctx.Err())
+			wg.Wait() // 等待所有worker结束
+			return
 		}
 	}
-
-	// 收集并打印结果
-	/*for result := range results {
-		fmt.Printf("Received result: %d\n", result)
-	}*/
 }
