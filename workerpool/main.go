@@ -1,6 +1,7 @@
-package workerpool
+package main
 
 import (
+	"context"
 	"fmt"
 	"sync"
 )
@@ -31,7 +32,9 @@ func Worker(id int, jobs <-chan Job, results chan<- Result, wg *sync.WaitGroup) 
 }
 
 // RunWorkerPool 启动工作池并处理任务
-func RunWorkerPool() {
+func main() {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	// 设置任务数量和工作者数量
 	const numJobs = 9
 	const numWorkers = 3
@@ -63,11 +66,28 @@ func RunWorkerPool() {
 		// 等待所有 worker 完成工作
 		wg.Wait()
 		// 关闭 results 通道，表示所有结果都已处理完毕
+		fmt.Println("close results channel")
 		close(results)
 	}()
 
-	// 收集并打印结果
-	for result := range results {
-		fmt.Printf("Received result: %d\n", result)
+	for {
+		select {
+		case <-ctx.Done():
+			break
+		case ctx.Err():
+			fmt.Println()
+		case result := <-results:
+			if result == 0 {
+				continue
+			}
+			fmt.Printf("Received result: %d\n", result)
+		default:
+
+		}
 	}
+
+	// 收集并打印结果
+	/*for result := range results {
+		fmt.Printf("Received result: %d\n", result)
+	}*/
 }
