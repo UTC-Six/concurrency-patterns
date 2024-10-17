@@ -31,7 +31,7 @@ func Worker(ctx context.Context, id int, jobs <-chan Job, results chan<- Result,
 				// 如果jobs通道已关闭,worker退出
 				return
 			}
-			fmt.Printf("Worker %d started job %d\n", id, job)
+			//fmt.Printf("Worker %d started job %d\n", id, job)
 			// 模拟一个耗时的任务
 			time.Sleep(time.Duration(rand.Intn(1000)) * time.Millisecond)
 			result := Result(job * 2)
@@ -39,7 +39,7 @@ func Worker(ctx context.Context, id int, jobs <-chan Job, results chan<- Result,
 			results <- result
 		case <-ctx.Done():
 			// 如果context被取消,打印错误信息并退出
-			fmt.Printf("Worker %d stopping due to context cancellation: %v\n", id, ctx.Err())
+			//fmt.Printf("Worker %d stopping due to context cancellation: %v\n", id, ctx.Err())
 			return
 		}
 	}
@@ -51,8 +51,8 @@ func main() {
 	defer cancel() // 确保在main函数结束时调用cancel(),释放资源
 
 	// 创建任务和结果通道,缓冲区大小为100
-	jobs := make(chan Job, 100)
-	results := make(chan Result, 100)
+	jobs := make(chan Job, 10)
+	results := make(chan Result, 10)
 
 	// 创建WaitGroup来同步worker
 	var wg sync.WaitGroup
@@ -74,11 +74,12 @@ func main() {
 	resultCount := 0
 	for {
 		select {
-		case result := <-results:
-			fmt.Printf("Received result: %d\n", result)
+		//case result := <-results:
+		case _ = <-results:
+			//fmt.Printf("Received result: %d\n", result)
 			resultCount++
 			if resultCount == 20 {
-				fmt.Println("All results received")
+				//fmt.Println("All results received")
 				return
 			}
 		case <-ctx.Done():
