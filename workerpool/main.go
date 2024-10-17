@@ -1,10 +1,11 @@
 package main
 
 import (
-	"context" // 导入context包,用于处理超时和取消操作
-	"fmt"     // 导入fmt包,用于打印输出
-	"sync"    // 导入sync包,用于同步goroutine
-	"time"    // 导入time包,用于处理时间相关操作
+	"context"   // 导入context包,用于处理超时和取消操作
+	"fmt"       // 导入fmt包,用于打印输出
+	"math/rand" // 导入math/rand包,用于生成随机数
+	"sync"      // 导入sync包,用于同步goroutine
+	"time"      // 导入time包,用于处理时间相关操作
 )
 
 // Job 代表一个需要处理的任务
@@ -30,19 +31,23 @@ func Worker(ctx context.Context, id int, jobs <-chan Job, results chan<- Result,
 				// 如果jobs通道已关闭,worker退出
 				return
 			}
-			fmt.Printf("worker %d processing job %d\n", id, job)
-			results <- Result(job * 2) // 将任务结果(这里简单地将任务值乘以2)发送到results通道
+			fmt.Printf("Worker %d started job %d\n", id, job)
+			// 模拟一个耗时的任务
+			time.Sleep(time.Duration(rand.Intn(1000)) * time.Millisecond)
+			result := Result(job * 2)
+			fmt.Printf("Worker %d completed job %d, result: %d\n", id, job, result)
+			results <- result
 		case <-ctx.Done():
 			// 如果context被取消,打印错误信息并退出
-			fmt.Printf("worker %d stopping due to context cancellation: %v\n", id, ctx.Err())
+			fmt.Printf("Worker %d stopping due to context cancellation: %v\n", id, ctx.Err())
 			return
 		}
 	}
 }
 
 func main() {
-	// 创建一个3秒后超时的context
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	// 创建一个5秒后超时的context
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel() // 确保在main函数结束时调用cancel(),释放资源
 
 	// 创建任务和结果通道,缓冲区大小为100
@@ -52,29 +57,28 @@ func main() {
 	// 创建WaitGroup来同步worker
 	var wg sync.WaitGroup
 
-	// 启动工作池,创建3个worker
-	for i := 0; i < 3; i++ {
+	// 启动5个worker
+	for i := 0; i < 5; i++ {
 		wg.Add(1) // 每启动一个worker,将WaitGroup计数器加1
 		go Worker(ctx, i, jobs, results, &wg)
 	}
 
-	// 发送任务
+	// 发送20个任务
 	go func() {
-		for i := 0; i < 5; i++ {
-			jobs <- Job(i) // 发送5个任务到jobs通道
+		for i := 0; i < 20; i++ {
+			jobs <- Job(i) // 发送20个任务到jobs通道
 		}
 		close(jobs) // 所有任务发送完毕后关闭jobs通道
 	}()
 
-	// 使用 for + select 接收结果
 	resultCount := 0
 	for {
 		select {
 		case result := <-results:
-			fmt.Printf("Result: %d\n", result)
+			fmt.Printf("Received result: %d\n", result)
 			resultCount++
-			if resultCount == 5 {
-				// 如果已接收5个结果,程序结束
+			if resultCount == 20 {
+				fmt.Println("All results received")
 				return
 			}
 		case <-ctx.Done():
@@ -82,15 +86,6 @@ func main() {
 			fmt.Printf("Main: context cancelled: %v\n", ctx.Err())
 			wg.Wait() // 等待所有worker结束
 			return
-		default:
-			// 检查context是否已经结束
-			if err := ctx.Err(); err != nil {
-				fmt.Printf("Main: context error: %v\n", err)
-				wg.Wait() // 等待所有worker结束
-				return
-			}
-			// 如果context没有结束,短暂休眠后继续循环
-			time.Sleep(100 * time.Millisecond)
 		}
 	}
 }
